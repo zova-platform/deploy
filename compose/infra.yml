@@ -116,6 +116,17 @@ services:
       timeout: 3s
       retries: 20
 
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend@sha256:e1929ae2818226284d7ef007329098a30851c11528ab3712bc9c8d68da78278b
+    profiles: ["osrm"]
+    restart: unless-stopped
+    command: ["osrm-routed", "--algorithm", "mld", "/data/${OSRM_NAME:-thailand-latest}.osrm"]
+    mem_limit: ${OSRM_MEM_LIMIT:-3g}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${OSRM_PORT:-5000}:5000"
+    volumes:
+      - ../osrm/data:/data
+
 volumes:
   postgres-data:
   redis-data:
