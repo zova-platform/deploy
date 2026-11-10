@@ -1,0 +1,47 @@
+version: "3"
+
+vars:
+  ORG: zova-platform
+  REPOS: proto platform-go ci-workflows docs service-template
+  COMPOSE: docker compose -f compose/infra.yml
+
+tasks:
+  default:
+    desc: List tasks
+    cmds:
+      - task --list
+    silent: true
+
+  up:
+    desc: Start the infra stack (creates compose/.env from .env.example on first run)
+    preconditions:
+      - sh: test -f compose/infra.yml
+        msg: compose/infra.yml not found
+    cmds:
+      - cmd: |
+          if [ ! -f compose/.env ]; then
+            cp compose/.env.example compose/.env
+            echo "created compose/.env from compose/.env.example"
+          fi
+        silent: true
+      - "{{.COMPOSE}} up -d --wait"
+
+  down:
+    desc: Stop the infra stack and keep its data
+    preconditions:
+      - sh: test -f compose/infra.yml
+        msg: compose/infra.yml not found
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  clone-all:
+    desc: Clone every ZOVA repo next to this one, skipping those already there
+    silent: true
+    cmds:
+      - for: { var: REPOS, split: " " }
+        cmd: |
+          if [ -d "../{{.ITEM}}/.git" ]; then
+            echo "skip {{.ITEM}} (already cloned)"
+          else
+            git clone "https://github.com/{{.ORG}}/{{.ITEM}}.git" "../{{.ITEM}}"
+          fi
