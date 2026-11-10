@@ -25,7 +25,7 @@ Other tasks:
 | `task up` | Start the infra stack |
 | `task down` | Stop it and keep the data |
 | `task clone-all` | Clone every ZOVA repo next to this one, skipping those already cloned |
-| `task osrm:prepare` | Download Thailand map data and build the routing graph |
+| `task osrm:prepare` | Download map data, clip it to Bangkok and build the routing graph |
 | `task osrm:up` | Start the OSRM routing service |
 
 ## What runs
@@ -59,27 +59,28 @@ The per-service databases are created only when the Postgres volume is first cre
 
 ## OSRM
 
-OSRM needs a routing graph built from OpenStreetMap data.
+OSRM needs a routing graph built from OpenStreetMap data. ZOVA covers the Bangkok area only.
 
 ```sh
 task osrm:prepare
 task osrm:up
 ```
 
-`osrm:prepare` downloads `thailand-latest.osm.pbf` (about 330 MB) from Geofabrik, checks its checksum and builds the graph into `osrm/data/`. Building the whole of Thailand takes a few minutes of CPU and **more than 5 GB of RAM**. If it is killed with exit code 137, free memory or raise the limit:
+`osrm:prepare` downloads `thailand-latest.osm.pbf` (about 330 MB) from Geofabrik and checks its checksum. It clips the file to the Bangkok bounding box (`100.32,13.49,100.95,13.96`, west, south, east, north) with osmium and builds the graph into `osrm/data/`. This takes a few minutes and under 1 GB of RAM.
 
-```sh
-OSRM_PREPARE_MEM=8g task osrm:prepare
-```
+Try a route once it is running: `curl "http://localhost:5000/route/v1/driving/100.5340,13.7456;100.5370,13.7650?overview=false"`.
 
-To try OSRM on a small region first:
+Requests outside the bounding box fail, so keep pickups and drop-offs inside it.
 
-```sh
-OSRM_NAME=maldives-latest OSRM_PBF_URL=https://download.geofabrik.de/asia/maldives-latest.osm.pbf task osrm:prepare
-OSRM_NAME=maldives-latest task osrm:up
-```
+Settings (environment variables):
 
-Once running, try `curl "http://localhost:5000/route/v1/driving/100.5018,13.7563;100.5231,13.7367?overview=false"`.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OSRM_BBOX` | `100.32,13.49,100.95,13.96` | Area to keep. `none` skips clipping |
+| `OSRM_NAME` | `bangkok` | Name of the graph in `osrm/data/` |
+| `OSRM_PREPARE_MEM` | `2g` | Memory limit while building the graph |
+
+Building all of Thailand was tried and failed: `osrm-extract` was killed for lack of memory at 7 GB. If you have far more RAM, try `OSRM_BBOX=none OSRM_NAME=thailand-latest task osrm:prepare` and then `OSRM_NAME=thailand-latest task osrm:up`.
 
 ## Configuration
 
