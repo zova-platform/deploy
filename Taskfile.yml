@@ -1,0 +1,101 @@
+version: "3"
+
+vars:
+  ORG: zova-platform
+  REPOS: proto platform-go ci-workflows docs service-template
+  COMPOSE: docker compose -f compose/infra.yml
+  OSRM_PBF_URL: '{{default "https://download.geofabrik.de/asia/thailand-latest.osm.pbf" .OSRM_PBF_URL}}'
+  OSRM_SOURCE: '{{default "thailand-latest" .OSRM_SOURCE}}'
+  OSRM_BBOX: '{{default "100.32,13.49,100.95,13.96" .OSRM_BBOX}}'
+  OSRM_DATA: osrm/data
+  OSRM_NAME: '{{default "bangkok" .OSRM_NAME}}'
+  OSMIUM_IMAGE: iboates/osmium@sha256:9b62f39b12914af78629e884fbe7a0ebe690b2ea9c892916897f477657617552
+  OSRM_PREPARE_MEM: '{{default "2g" .OSRM_PREPARE_MEM}}'
+
+env:
+  OSRM_NAME: "{{.OSRM_NAME}}"
+
+tasks:
+  default:
+    desc: List tasks
+    cmds:
+      - task --list
+    silent: true
+
+  env:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        if [ ! -f compose/.env ]; then
+          cp compose/.env.example compose/.env
+          echo "created compose/.env from compose/.env.example"
+        fi
+
+  up:
+    desc: Start the infra stack (creates compose/.env from .env.example on first run)
+    preconditions:
+      - sh: test -f compose/infra.yml
+        msg: compose/infra.yml not found
+    cmds:
+      - task: env
+      - "{{.COMPOSE}} up -d --wait"
+
+  down:
+    desc: Stop the infra stack and keep its data
+    preconditions:
+      - sh: test -f compose/infra.yml
+        msg: compose/infra.yml not found
+    cmds:
+      - "{{.COMPOSE}} --profile osrm down"
+
+  clone-all:
+    desc: Clone every ZOVA repo next to this one, skipping those already there
+    silent: true
+    cmds:
+      - for: { var: REPOS, split: " " }
+        cmd: |
+          if [ -d "../{{.ITEM}}/.git" ]; then
+            echo "skip {{.ITEM}} (already cloned)"
+          else
+            git clone "https://github.com/{{.ORG}}/{{.ITEM}}.git" "../{{.ITEM}}"
+          fi
+
+  osrm:prepare:
+    desc: Download Thailand OSM data, clip it to the Bangkok area and build the OSRM routing graph
+    status:
+      - test -f {{.OSRM_DATA}}/{{.OSRM_NAME}}.osrm.mldgr
+    env:
+      OSRM_MEM_LIMIT: "{{.OSRM_PREPARE_MEM}}"
+    cmds:
+      - task: env
+      - mkdir -p {{.OSRM_DATA}}
+      - cmd: |
+          if [ ! -f {{.OSRM_DATA}}/{{.OSRM_SOURCE}}.osm.pbf ]; then
+            curl -fL --retry 3 -o {{.OSRM_DATA}}/{{.OSRM_SOURCE}}.osm.pbf {{.OSRM_PBF_URL}}
+          fi
+      - cmd: |
+          expected=$(curl -fsSL {{.OSRM_PBF_URL}}.md5 | cut -d' ' -f1)
+          actual=$(md5sum {{.OSRM_DATA}}/{{.OSRM_SOURCE}}.osm.pbf | cut -d' ' -f1)
+          if [ "$expected" != "$actual" ]; then
+            echo "checksum mismatch for {{.OSRM_SOURCE}}.osm.pbf, delete it and retry" >&2
+            exit 1
+          fi
+      - cmd: |
+          if [ "{{.OSRM_BBOX}}" != "none" ]; then
+            docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/{{.OSRM_DATA}}:/data" {{.OSMIUM_IMAGE}} \
+              extract -b {{.OSRM_BBOX}} --strategy complete_ways --overwrite \
+              -o /data/{{.OSRM_NAME}}.osm.pbf /data/{{.OSRM_SOURCE}}.osm.pbf
+          fi
+      - '{{.COMPOSE}} --profile osrm run --rm --no-deps --user "$(id -u):$(id -g)" --entrypoint osrm-extract osrm --threads 4 -p /opt/car.lua /data/{{.OSRM_NAME}}.osm.pbf'
+      - '{{.COMPOSE}} --profile osrm run --rm --no-deps --user "$(id -u):$(id -g)" --entrypoint osrm-partition osrm /data/{{.OSRM_NAME}}.osrm'
+      - '{{.COMPOSE}} --profile osrm run --rm --no-deps --user "$(id -u):$(id -g)" --entrypoint osrm-customize osrm /data/{{.OSRM_NAME}}.osrm'
+
+  osrm:up:
+    desc: Start the OSRM routing service (run osrm:prepare first)
+    preconditions:
+      - sh: test -f {{.OSRM_DATA}}/{{.OSRM_NAME}}.osrm.mldgr
+        msg: OSRM data not found, run "task osrm:prepare" first
+    cmds:
+      - task: env
+      - "{{.COMPOSE}} --profile osrm up -d osrm"
