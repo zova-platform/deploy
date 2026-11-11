@@ -3,7 +3,7 @@ version: "3"
 vars:
   ORG: zova-platform
   REPOS: proto platform-go ci-workflows docs service-template
-  COMPOSE: docker compose -f compose/infra.yml
+  COMPOSE: docker compose -f compose/infra.yml -f compose/services.yml
   OSRM_PBF_URL: '{{default "https://download.geofabrik.de/asia/thailand-latest.osm.pbf" .OSRM_PBF_URL}}'
   OSRM_SOURCE: '{{default "thailand-latest" .OSRM_SOURCE}}'
   OSRM_BBOX: '{{default "100.32,13.49,100.95,13.96" .OSRM_BBOX}}'
