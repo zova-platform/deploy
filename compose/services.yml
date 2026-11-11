@@ -1,0 +1,12 @@
+services:
+  smoke:
+    image: ghcr.io/zova-platform/service-template:384f005
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: smoke
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${SMOKE_GRPC_PORT:-19090}:9090"
+      - "${BIND_ADDRESS:-127.0.0.1}:${SMOKE_HTTP_PORT:-18081}:8081"
+    depends_on:
+      - otel-collector
